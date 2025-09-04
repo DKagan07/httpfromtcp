@@ -105,9 +105,10 @@ func TestRequestLineParse(t *testing.T) {
 		_, err := RequestFromReader(reader)
 		assert.Error(t, err)
 	})
+}
 
+func TestHeaders(t *testing.T) {
 	t.Run("Handle standard headers", func(t *testing.T) {
-		// Test: Standard Headers
 		reader := &chunkReader{
 			data:            "GET / HTTP/1.1\r\nHost: localhost:42069\r\nUser-Agent: curl/7.81.0\r\nAccept: */*\r\n\r\n",
 			numBytesPerRead: 3,
@@ -121,10 +122,40 @@ func TestRequestLineParse(t *testing.T) {
 	})
 
 	t.Run("Malformed headers", func(t *testing.T) {
-		// Test: Malformed Header
 		reader := &chunkReader{
 			data:            "GET / HTTP/1.1\r\nHost localhost:42069\r\n\r\n",
 			numBytesPerRead: 3,
+		}
+
+		_, err := RequestFromReader(reader)
+		require.Error(t, err)
+	})
+
+	t.Run("Empty headers", func(t *testing.T) {
+		reader := &chunkReader{
+			data:            "GET / HTTP/1.1\r\n\r\n",
+			numBytesPerRead: 3,
+		}
+		req, err := RequestFromReader(reader)
+		require.NoError(t, err)
+		assert.Len(t, req.Headers, 0)
+	})
+
+	t.Run("Duplicate headers", func(t *testing.T) {
+		reader := &chunkReader{
+			data:            "GET / HTTP/1.1\r\nHost: localhost:42069\r\nUser-Agent: curl/7.81.0\r\nAccept: */*\r\nhost: hehe_host\r\n\r\n",
+			numBytesPerRead: 10,
+		}
+
+		req, err := RequestFromReader(reader)
+		require.NoError(t, err)
+		assert.Equal(t, "localhost:42069, hehe_host", req.Headers["host"])
+	})
+
+	t.Run("Missing end headers", func(t *testing.T) {
+		reader := &chunkReader{
+			data:            "GET / HTTP/1.1\r\nHost: localhost:42069",
+			numBytesPerRead: 7,
 		}
 
 		_, err := RequestFromReader(reader)

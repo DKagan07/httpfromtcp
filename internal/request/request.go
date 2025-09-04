@@ -37,6 +37,23 @@ var (
 )
 
 func (r *Request) parse(data []byte) (int, error) {
+	totalBytesParsed := 0
+	for r.parserState != requestStateDone {
+		n, err := r.parseSingle(data[totalBytesParsed:])
+		if err != nil {
+			return 0, err
+		}
+
+		totalBytesParsed += n
+		if n == 0 {
+			break
+		}
+
+	}
+	return totalBytesParsed, nil
+}
+
+func (r *Request) parseSingle(data []byte) (int, error) {
 	switch r.parserState {
 	case requestStateInitialized:
 		reqLine, n, err := parseRequestLine(data)
@@ -53,8 +70,15 @@ func (r *Request) parse(data []byte) (int, error) {
 		return n, nil
 
 	case requestStateParsingHeaders:
-		return 0, nil
+		n, done, err := r.Headers.Parse(data)
+		if err != nil {
+			return 0, err
+		}
+		if done {
+			r.parserState = requestStateDone
+		}
 
+		return n, nil
 	case requestStateDone:
 		return 0, errors.New("error: trying to read data in requestStateDone state")
 
@@ -69,6 +93,7 @@ func RequestFromReader(reader io.Reader) (*Request, error) {
 	readToIdx := 0
 	req := &Request{
 		parserState: requestStateInitialized,
+		Headers:     headers.NewHeaders(),
 	}
 
 	for req.parserState != requestStateDone {
@@ -82,7 +107,9 @@ func RequestFromReader(reader io.Reader) (*Request, error) {
 		numBytesRead, err := reader.Read(buf[readToIdx:])
 		if err != nil {
 			if errors.Is(err, io.EOF) {
-				req.parserState = requestStateDone
+				if req.parserState != requestStateDone {
+					return nil, errors.New("incomplete request")
+				}
 				break
 			}
 			return nil, err
