@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"slices"
+	"strconv"
 	"strings"
 
 	"httpfromtcp/internal/headers"
@@ -13,8 +14,10 @@ import (
 type Request struct {
 	RequestLine RequestLine
 	Headers     headers.Headers
+	Body        []byte
 
 	parserState parserState
+	bodyRead    int
 }
 
 type RequestLine struct {
@@ -27,8 +30,9 @@ type parserState int
 
 const (
 	requestStateInitialized parserState = iota
-	requestStateDone
 	requestStateParsingHeaders
+	requestStateParsingBody
+	requestStateDone
 )
 
 var (
@@ -75,16 +79,38 @@ func (r *Request) parseSingle(data []byte) (int, error) {
 			return 0, err
 		}
 		if done {
-			r.parserState = requestStateDone
+			r.parserState = requestStateParsingBody
 		}
 
 		return n, nil
+	case requestStateParsingBody:
+		contentLength := r.Headers.Get("content-length")
+		if contentLength == "" {
+			r.parserState = requestStateDone
+			return len(data), nil
+		}
+
+		cl, err := strconv.Atoi(contentLength)
+		if err != nil {
+			return 0, err
+		}
+
+		r.Body = append(r.Body, data...)
+		r.bodyRead += len(data)
+
+		if r.bodyRead > cl {
+			return 0, errors.New("Content-Length too large")
+		}
+
+		if r.bodyRead == cl {
+			r.parserState = requestStateDone
+		}
+
+		return len(data), nil
 	case requestStateDone:
 		return 0, errors.New("error: trying to read data in requestStateDone state")
-
 	default:
 		return 0, errors.New("unknown state")
-
 	}
 }
 
@@ -94,6 +120,7 @@ func RequestFromReader(reader io.Reader) (*Request, error) {
 	req := &Request{
 		parserState: requestStateInitialized,
 		Headers:     headers.NewHeaders(),
+		Body:        make([]byte, 0),
 	}
 
 	for req.parserState != requestStateDone {

@@ -63,3 +63,14 @@ func isValidFieldName(fieldName string) bool {
 	regex := regexp.MustCompile(`^[a-zA-Z0-9!#$%&'*+\-.^_` + "`" + `|~]+$`)
 	return regex.MatchString(fieldName)
 }
+
+// Get accepts a case-insensitive key to a header and returns the value
+func (h Headers) Get(key string) string {
+	l_key := strings.ToLower(key)
+	v, ok := h[l_key]
+	if !ok {
+		return ""
+	}
+
+	return v
+}
